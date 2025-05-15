@@ -1,0 +1,7 @@
+{
+    "python.analysis.exclude": [
+        "disassembly_output*.py",
+        "max_out_value_map*.py",
+        "output*.py"
+    ]
+}

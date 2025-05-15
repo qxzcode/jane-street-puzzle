@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from disassembly_types import Variable
 
-with open("variables.pickle", "rb") as f:
+with open("generated_data/variables.pickle", "rb") as f:
     variables: list[Variable] = pickle.load(f)
 
 
@@ -28,7 +28,7 @@ assert input_domain == list(range(input_min, input_max + 1))
 # input_min, input_max = 0, 255
 
 
-from max_out_value_map import max_out_value_map  # noqa: E402
+from generated_data.max_out_value_map import max_out_value_map  # noqa: E402
 
 # max_out_value_map = {}  # noqa: F811
 

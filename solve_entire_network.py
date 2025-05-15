@@ -4,10 +4,10 @@ from ortools.sat.python import cp_model
 from tqdm import tqdm
 
 from disassembly_types import Variable
-from max_out_value_map import max_out_value_map
+from generated_data.max_out_value_map import max_out_value_map
 
 # Load the variables.
-with open("variables.pickle", "rb") as f:
+with open("generated_data/variables.pickle", "rb") as f:
     variables: list[Variable] = pickle.load(f)
 
 # Tighten the max_values using the max_out_value_map.

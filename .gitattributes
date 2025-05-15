@@ -1,2 +1,4 @@
 *.safetensors filter=lfs diff=lfs merge=lfs -text
 *.pt filter=lfs diff=lfs merge=lfs -text
+generated_data/variables.pickle filter=lfs diff=lfs merge=lfs -text
+generated_data/max_out_value_map.py filter=lfs diff=lfs merge=lfs -text
