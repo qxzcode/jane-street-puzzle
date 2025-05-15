@@ -9,11 +9,26 @@ from generated_data.max_out_value_map import max_out_value_map
 # Load the variables.
 with open("generated_data/variables.pickle", "rb") as f:
     variables: list[Variable] = pickle.load(f)
+variables_by_name = {var.name: (i, var) for i, var in enumerate(variables)}
 
 # Tighten the max_values using the max_out_value_map.
 for i, var in enumerate(variables):
     if not var.is_max_value_tight:
         var.max_value = max_out_value_map[i, var.name]
+
+
+# Tighten the bounds using bounds.txt.
+print("Applying existing bounds...")
+with open("generated_data/bounds.txt") as bounds_file:
+    for line in bounds_file:
+        name, min_value, max_value = line.split()
+        min_value, max_value = int(min_value), int(max_value)
+        var_index, var = variables_by_name[name]
+        assert var.min_value <= min_value <= max_value <= var.max_value, (
+            f"Invalid bounds for {name}: {var.min_value} <= {min_value} <= {max_value} <= {var.max_value}"
+        )
+        var.min_value = min_value
+        var.max_value = max_value
 
 
 def solve_for_min_max(target_var_index: int) -> tuple[int, int] | None:
@@ -66,7 +81,6 @@ def solve_for_min_max(target_var_index: int) -> tuple[int, int] | None:
         return None
 
     # Add the output constraints.
-    variables_by_name = {var.name: (i, var) for i, var in enumerate(variables)}
     for i in range(16, 32):
         var_index, var = variables_by_name[f"x5438_{i}"]
         linear_expr = var.value
@@ -135,9 +149,20 @@ with open("generated_data/bounds.txt", "w") as bounds_file:
         if variables[i].name.startswith(("x5438_", "x5440_")):
             continue
 
-        if (result := solve_for_min_max(i)) is not None:
+        if variables[i].min_value == variables[i].max_value:
+            print(
+                f"Variable {variables[i].name} is a constant ({variables[i].min_value}); skipping."
+            )
+            result = (variables[i].min_value, variables[i].max_value)
+        else:
+            result = solve_for_min_max(i)
+
+        if result is not None:
             min_value, max_value = result
-            bounds_file.write(f"{variables[i].name:<10} {min_value:>3} {max_value:>3}\n")
+
+            bounds_file.write(f"{variables[i].name:<9} {min_value:>3} {max_value:>3}\n")
+            bounds_file.flush()
+
             variables[i].min_value = min_value
             variables[i].max_value = max_value
 
