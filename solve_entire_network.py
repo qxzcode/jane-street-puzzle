@@ -1,4 +1,5 @@
 import pickle
+import time
 from collections import deque
 
 from ortools.sat.python import cp_model
@@ -38,7 +39,13 @@ for i, var in enumerate(variables):
             neighbors[var_index].append(i)
 
 
-def solve_for_min_max(target_var_index: int) -> tuple[int, int] | None:
+minimize_hint_values = [None for _ in variables]
+maximize_hint_values = minimize_hint_values.copy()
+
+
+def solve_for_min_max(target_var_index: int, max_bfs_expansions: int) -> tuple[int, int]:
+    assert max_bfs_expansions > 0, "max_bfs_expansions must be greater than 0"
+
     print("Building model...")
     model = cp_model.CpModel()
 
@@ -54,11 +61,10 @@ def solve_for_min_max(target_var_index: int) -> tuple[int, int] | None:
         return var_index_to_cp_var[var_index]
 
     # Perform a BFS to build a limited-size graph of variables and constraints around the target variable.
-    MAX_EXPANSIONS = 100
-    progress = tqdm(desc="Building model", total=MAX_EXPANSIONS, unit="expansion")
+    progress = tqdm(desc="Building model", total=max_bfs_expansions, unit="expansion")
     queue = deque([target_var_index])
     visited = set()
-    while queue and len(visited) < MAX_EXPANSIONS:
+    while queue and len(visited) < max_bfs_expansions:
         var_index = queue.popleft()
         if var_index in visited:
             continue
@@ -74,7 +80,6 @@ def solve_for_min_max(target_var_index: int) -> tuple[int, int] | None:
             model.add_max_equality(get_cp_var(var_index), [0, linear_expr])
 
         # Add neighbors to the queue.
-        print(f"Variable {var.name} has {len(neighbors[var_index])} neighbors")
         for neighbor_index in neighbors[var_index]:
             if neighbor_index not in visited:
                 queue.append(neighbor_index)
@@ -109,6 +114,16 @@ def solve_for_min_max(target_var_index: int) -> tuple[int, int] | None:
     solver.parameters.max_memory_in_mb = 3_000
 
     def get_optimum_value(maximize: bool) -> int:
+        global minimize_hint_values, maximize_hint_values
+
+        # Add hints.
+        hint_values = maximize_hint_values if maximize else minimize_hint_values
+        model.clear_hints()
+        for i, cp_var in var_index_to_cp_var.items():
+            if hint_values[i] is not None:
+                model.add_hint(cp_var, hint_values[i])
+
+        # Solve.
         target_var = var_index_to_cp_var[target_var_index]
         if maximize:
             model.maximize(target_var)
@@ -124,6 +139,12 @@ def solve_for_min_max(target_var_index: int) -> tuple[int, int] | None:
 
         if status != cp_model.OPTIMAL:
             raise Exception("infeasible")
+
+        # Update hints for the next solve.
+        for i, cp_var in var_index_to_cp_var.items():
+            hint_values[i] = solver.value(cp_var)
+        if not maximize:
+            maximize_hint_values = hint_values.copy()
 
         return solver.value(target_var)
 
@@ -159,18 +180,27 @@ with open("generated_data/bounds.txt", "w") as bounds_file:
             print(
                 f"Variable {variables[i].name} is a constant ({variables[i].min_value}); skipping."
             )
-            result = (variables[i].min_value, variables[i].max_value)
+            min_value, max_value = (variables[i].min_value, variables[i].max_value)
         else:
-            result = solve_for_min_max(i)
+            min_value, max_value = 0, None
+            max_bfs_expansions = 64
+            while min_value != max_value:
+                max_bfs_expansions *= 2
+                print(f"\n\nSolving bounds for {variables[i].name} with {max_bfs_expansions=}\n\n")
 
-        if result is not None:
-            min_value, max_value = result
+                start = time.perf_counter()
+                min_value, max_value = solve_for_min_max(i, max_bfs_expansions)
+                if time.perf_counter() - start > 1.0:
+                    print("\n\nSolving took too long; giving up\n\n")
+                    break
+            else:
+                print(f"\n\nSucceeded for {variables[i].name} with {max_bfs_expansions=}\n\n")
 
-            bounds_file.write(f"{variables[i].name:<9} {min_value:>3} {max_value:>3}\n")
-            bounds_file.flush()
+        bounds_file.write(f"{variables[i].name:<9} {min_value:>3} {max_value:>3}\n")
+        bounds_file.flush()
 
-            variables[i].min_value = min_value
-            variables[i].max_value = max_value
+        variables[i].min_value = min_value
+        variables[i].max_value = max_value
 
 
 print("\nAll done.")
