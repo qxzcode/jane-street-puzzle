@@ -2,6 +2,7 @@ import json
 import pickle
 
 from disassembly_types import LinearExpr, Variable
+from generated_data.max_out_value_map import max_out_value_map
 
 with open("generated_data/variables.pickle", "rb") as f:
     variables: list[Variable] = pickle.load(f)
@@ -45,6 +46,12 @@ OUTPUT_FILE = "generated_data/remap_equivalent_variables.json"
 with open(OUTPUT_FILE, "w") as f:
     json.dump(remap_var_index, f, indent=2)
 print(f"Wrote {OUTPUT_FILE} ({len(remap_var_index)} entries)")
+
+
+# Tighten the max_values using the max_out_value_map.
+for i, var in enumerate(variables):
+    if not var.is_max_value_tight:
+        var.max_value = max_out_value_map[i, var.name]
 
 
 # Now, remove unused and duplicate variables and remap the indices.
