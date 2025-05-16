@@ -1,4 +1,5 @@
 import pickle
+from collections import deque
 
 from ortools.sat.python import cp_model
 from tqdm import tqdm
@@ -28,52 +29,62 @@ with open("generated_data/bounds.txt") as bounds_file:
             print(f"Ignoring unknown variable {name} ∈ [{min_value}, {max_value}]")
 
 
+# Build the (undirected) neighbor graph.
+neighbors = [[] for _ in variables]
+for i, var in enumerate(variables):
+    if var.value is not None:
+        for var_index, _ in var.value.terms:
+            neighbors[i].append(var_index)
+            neighbors[var_index].append(i)
+
+
 def solve_for_min_max(target_var_index: int) -> tuple[int, int] | None:
     print("Building model...")
     model = cp_model.CpModel()
 
     var_index_to_cp_var: dict[int, cp_model.IntVar] = {}
-    progress = tqdm(desc="Building model", total=len(variables), unit="var")
 
-    def get_var_layer_index(var_index: int) -> int:
-        name = variables[var_index].name
-        return 0 if name.startswith("in") else int(name.split("_")[0][1:])
-
-    def get_cp_var(var_index: int, min_constraint_layer_index: int = 0) -> cp_model.IntVar:
-        var = variables[var_index]
-        layer_index = get_var_layer_index(var_index)
-
+    def get_cp_var(var_index: int) -> cp_model.IntVar:
         if var_index not in var_index_to_cp_var:
+            var = variables[var_index]
             var_index_to_cp_var[var_index] = model.new_int_var(
                 var.min_value, var.max_value, var.name
             )
-            progress.update(1)
-
-            if var.value is not None and layer_index >= min_constraint_layer_index:
-                linear_expr = (
-                    sum(
-                        coef * get_cp_var(var_index, min_constraint_layer_index)
-                        for var_index, coef in var.value.terms
-                    )
-                    + var.value.constant
-                )
-
-                # Don't actually add the constraint for the last 2 layers, because CP-SAT can't handle those raw.
-                if not var.name.startswith(("x5438_", "x5440_")):
-                    model.add_max_equality(var_index_to_cp_var[var_index], [0, linear_expr])
 
         return var_index_to_cp_var[var_index]
 
-    # Load all the variables and intermediate constraints.
-    get_cp_var(
-        len(variables) - 1,
-        min_constraint_layer_index=get_var_layer_index(target_var_index) - 50,
-    )
+    # Perform a BFS to build a limited-size graph of variables and constraints around the target variable.
+    MAX_EXPANSIONS = 100
+    progress = tqdm(desc="Building model", total=MAX_EXPANSIONS, unit="expansion")
+    queue = deque([target_var_index])
+    visited = set()
+    while queue and len(visited) < MAX_EXPANSIONS:
+        var_index = queue.popleft()
+        if var_index in visited:
+            continue
+        visited.add(var_index)
+
+        # Add the constraint (except for the last 2 layers, because CP-SAT can't handle those raw).
+        var = variables[var_index]
+        if not (var.value is None or var.name.startswith(("x5438_", "x5440_"))):
+            linear_expr = (
+                sum(coef * get_cp_var(var_index) for var_index, coef in var.value.terms)
+                + var.value.constant
+            )
+            model.add_max_equality(get_cp_var(var_index), [0, linear_expr])
+
+        # Add neighbors to the queue.
+        print(f"Variable {var.name} has {len(neighbors[var_index])} neighbors")
+        for neighbor_index in neighbors[var_index]:
+            if neighbor_index not in visited:
+                queue.append(neighbor_index)
+
+        progress.update(1)
+
     progress.close()
     print(f"{len(var_index_to_cp_var)} vars in model")
 
-    if target_var_index not in var_index_to_cp_var:
-        return None
+    assert target_var_index in var_index_to_cp_var
 
     # Add the output constraints.
     for i in range(16, 32):
@@ -87,7 +98,7 @@ def solve_for_min_max(target_var_index: int) -> tuple[int, int] | None:
         # assert 0 <= target <= 255
 
         linear_expr_value = linear_expr.constant + sum(
-            coef * var_index_to_cp_var[var_index] for var_index, coef in linear_expr.terms
+            coef * get_cp_var(var_index) for var_index, coef in linear_expr.terms
         )
         model.add(linear_expr_value == 0)
 
