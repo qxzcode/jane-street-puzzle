@@ -45,3 +45,27 @@ OUTPUT_FILE = "generated_data/remap_equivalent_variables.json"
 with open(OUTPUT_FILE, "w") as f:
     json.dump(remap_var_index, f, indent=2)
 print(f"Wrote {OUTPUT_FILE} ({len(remap_var_index)} entries)")
+
+
+# Now, remove unused and duplicate variables and remap the indices.
+kept_variable_indices = set(remap_var_index.values())
+kept_variables = [var for i, var in enumerate(variables) if i in kept_variable_indices]
+remap_index = {
+    old: new
+    for new, old in enumerate(old for old in range(len(variables)) if old in kept_variable_indices)
+}
+
+for var in kept_variables:
+    if var.value is not None:
+        var.value = LinearExpr(
+            constant=var.value.constant,
+            terms=frozenset((remap_index[i], coef) for i, coef in var.value.terms),
+        )
+
+OUTPUT_FILE = "generated_data/reduced_variables.pickle"
+with open(OUTPUT_FILE, "wb") as f:
+    pickle.dump(kept_variables, f)
+print(
+    f"Wrote {OUTPUT_FILE} ({len(kept_variables)} variables, "
+    f"{100 * len(kept_variables) / len(variables):.2f}% of {len(variables)} original variables)"
+)
