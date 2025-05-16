@@ -4,17 +4,11 @@ from ortools.sat.python import cp_model
 from tqdm import tqdm
 
 from disassembly_types import Variable
-from generated_data.max_out_value_map import max_out_value_map
 
 # Load the variables.
-with open("generated_data/variables.pickle", "rb") as f:
+with open("generated_data/reduced_variables.pickle", "rb") as f:
     variables: list[Variable] = pickle.load(f)
 variables_by_name = {var.name: (i, var) for i, var in enumerate(variables)}
-
-# Tighten the max_values using the max_out_value_map.
-for i, var in enumerate(variables):
-    if not var.is_max_value_tight:
-        var.max_value = max_out_value_map[i, var.name]
 
 
 # Tighten the bounds using bounds.txt.
@@ -23,12 +17,15 @@ with open("generated_data/bounds.txt") as bounds_file:
     for line in bounds_file:
         name, min_value, max_value = line.split()
         min_value, max_value = int(min_value), int(max_value)
-        var_index, var = variables_by_name[name]
-        assert var.min_value <= min_value <= max_value <= var.max_value, (
-            f"Invalid bounds for {name}: {var.min_value} <= {min_value} <= {max_value} <= {var.max_value}"
-        )
-        var.min_value = min_value
-        var.max_value = max_value
+        if name in variables_by_name:
+            var_index, var = variables_by_name[name]
+            assert var.min_value <= min_value <= max_value <= var.max_value, (
+                f"Invalid bounds for {name}: {var.min_value} <= {min_value} <= {max_value} <= {var.max_value}"
+            )
+            var.min_value = min_value
+            var.max_value = max_value
+        else:
+            print(f"Ignoring unknown variable {name} ∈ [{min_value}, {max_value}]")
 
 
 def solve_for_min_max(target_var_index: int) -> tuple[int, int] | None:
@@ -68,8 +65,6 @@ def solve_for_min_max(target_var_index: int) -> tuple[int, int] | None:
         return var_index_to_cp_var[var_index]
 
     # Load all the variables and intermediate constraints.
-    # for i in range(len(variables)):
-    #     get_cp_var(i)
     get_cp_var(
         len(variables) - 1,
         min_constraint_layer_index=get_var_layer_index(target_var_index) - 50,
