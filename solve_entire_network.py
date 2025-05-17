@@ -172,14 +172,16 @@ TOTAL_HOURS_TARGET = 12
 TOTAL_SECS_TARGET = 60 * 60 * TOTAL_HOURS_TARGET
 target_end_time = time.perf_counter() + TOTAL_SECS_TARGET
 
-max_bfs_expansions = 64
+avg_time_by_mbe = {}
+EMA_LAMBDA = 0.9
 
 with open("generated_data/bounds.txt", "w") as bounds_file:
     for i in tqdm(
         reversed(range(len(variables))), desc="Solving", unit="var", total=len(variables)
     ):
         now = time.perf_counter()
-        target_end_time_this_var = now + (target_end_time - now) / (i + 1)
+        target_duration_this_var = (target_end_time - now) / (i + 1)
+        target_end_time_this_var = now + target_duration_this_var
 
         # CP-SAT can't handle the last 2 layers, so skip them.
         if variables[i].name.startswith(("x5438_", "x5440_")):
@@ -191,6 +193,15 @@ with open("generated_data/bounds.txt", "w") as bounds_file:
             )
             min_value, max_value = (variables[i].min_value, variables[i].max_value)
         else:
+            # Determine the max_bfs_expansions based on the time remaining.
+            max_bfs_expansions = 2
+            while True:
+                if max_bfs_expansions * 2 not in avg_time_by_mbe or (
+                    avg_time_by_mbe[max_bfs_expansions * 2] > target_duration_this_var
+                ):
+                    break
+                max_bfs_expansions *= 2
+
             min_value, max_value = 0, None
             while min_value != max_value:
                 print(
@@ -200,20 +211,35 @@ with open("generated_data/bounds.txt", "w") as bounds_file:
                     "\n\n"
                 )
 
-                min_value, max_value = solve_for_min_max(i, max_bfs_expansions)
-                time_left = target_end_time_this_var - time.perf_counter()
-                if time_left < 0:
-                    print(
-                        f"\n\nSolving took too long ({-time_left:.3f}s over budget); giving up\n\n"
-                    )
-                    max_bfs_expansions = max(max_bfs_expansions // 2, 1)
-                    break
+                solve_start = time.perf_counter()
 
+                min_value, max_value = solve_for_min_max(i, max_bfs_expansions)
                 variables[i].min_value = min_value
                 variables[i].max_value = max_value
 
+                solve_duration = time.perf_counter() - solve_start
+
+                if max_bfs_expansions in avg_time_by_mbe:
+                    avg_time_by_mbe[max_bfs_expansions] = (
+                        EMA_LAMBDA * avg_time_by_mbe[max_bfs_expansions]
+                        + (1 - EMA_LAMBDA) * solve_duration
+                    )
+                else:
+                    avg_time_by_mbe[max_bfs_expansions] = solve_duration
+
+                time_left_after_next_solve = (
+                    target_end_time_this_var
+                    - time.perf_counter()
+                    - avg_time_by_mbe.get(max_bfs_expansions * 2, 0.0)
+                )
+
                 if min_value == max_value:
                     print(f"\n\nSucceeded for {variables[i].name} with {max_bfs_expansions=}\n\n")
+                    break
+                elif time_left_after_next_solve < 0:
+                    print(
+                        f"\n\nDoubling max_bfs_expansions would end up {-time_left_after_next_solve:.3f}s over budget; stopping\n\n"
+                    )
                     break
                 else:
                     max_bfs_expansions *= 2
@@ -221,8 +247,6 @@ with open("generated_data/bounds.txt", "w") as bounds_file:
         bounds_file.write(f"{variables[i].name:<9} {min_value:>3} {max_value:>3}\n")
         bounds_file.flush()
 
-        variables[i].min_value = min_value
-        variables[i].max_value = max_value
 
-
+print(f"{avg_time_by_mbe=}")
 print("\nAll done.")
