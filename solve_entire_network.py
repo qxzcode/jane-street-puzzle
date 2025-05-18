@@ -46,7 +46,7 @@ maximize_hint_values = minimize_hint_values.copy()
 def solve_for_min_max(target_var_index: int, max_bfs_expansions: int) -> tuple[int, int]:
     assert max_bfs_expansions > 0, "max_bfs_expansions must be greater than 0"
 
-    print("Building model...")
+    # print("Building model...")
     model = cp_model.CpModel()
 
     var_index_to_cp_var: dict[int, cp_model.IntVar] = {}
@@ -61,7 +61,7 @@ def solve_for_min_max(target_var_index: int, max_bfs_expansions: int) -> tuple[i
         return var_index_to_cp_var[var_index]
 
     # Perform a BFS to build a limited-size graph of variables and constraints around the target variable.
-    progress = tqdm(desc="Building model", total=max_bfs_expansions, unit="expansion")
+    progress = tqdm(desc="Building model", total=max_bfs_expansions, unit="expansion", leave=False)
     queue = deque([target_var_index])
     visited = set()
     while queue and len(visited) < max_bfs_expansions:
@@ -87,7 +87,7 @@ def solve_for_min_max(target_var_index: int, max_bfs_expansions: int) -> tuple[i
         progress.update(1)
 
     progress.close()
-    print(f"{len(var_index_to_cp_var)} vars in model")
+    # print(f"{len(var_index_to_cp_var)} vars in model")
 
     assert target_var_index in var_index_to_cp_var
 
@@ -107,11 +107,11 @@ def solve_for_min_max(target_var_index: int, max_bfs_expansions: int) -> tuple[i
         )
         model.add(linear_expr_value == 0)
 
-    print("Solving...")
+    # print("Solving...")
     solver = cp_model.CpSolver()
-    solver.parameters.log_search_progress = True
+    solver.parameters.log_search_progress = False
     # solver.parameters.max_presolve_iterations = 10
-    solver.parameters.max_memory_in_mb = 3_000
+    solver.parameters.max_memory_in_mb = 4_096
 
     def get_optimum_value(maximize: bool) -> int:
         global minimize_hint_values, maximize_hint_values
@@ -130,12 +130,12 @@ def solve_for_min_max(target_var_index: int, max_bfs_expansions: int) -> tuple[i
         else:
             model.minimize(target_var)
         status = solver.solve(model)
-        print(f"{solver.wall_time = }")
+        # print(f"{solver.wall_time = }")
 
-        print(f"{(status == cp_model.OPTIMAL) = }")
-        print(f"{(status == cp_model.FEASIBLE) = }")
-        print(f"{(status == cp_model.INFEASIBLE) = }")
-        print(f"{(status == cp_model.UNKNOWN) = }")
+        # print(f"{(status == cp_model.OPTIMAL) = }")
+        # print(f"{(status == cp_model.FEASIBLE) = }")
+        # print(f"{(status == cp_model.INFEASIBLE) = }")
+        # print(f"{(status == cp_model.UNKNOWN) = }")
 
         if status != cp_model.OPTIMAL:
             raise Exception("infeasible")
@@ -176,9 +176,10 @@ avg_time_by_mbe = {}
 EMA_LAMBDA = 0.9
 
 with open("generated_data/bounds.txt", "w") as bounds_file:
-    for i in tqdm(
+    prog = tqdm(
         reversed(range(len(variables))), desc="Solving", unit="var", total=len(variables)
-    ):
+    )
+    for i in prog:
         now = time.perf_counter()
         target_duration_this_var = (target_end_time - now) / (i + 1)
         target_end_time_this_var = now + target_duration_this_var
@@ -188,9 +189,9 @@ with open("generated_data/bounds.txt", "w") as bounds_file:
             continue
 
         if variables[i].min_value == variables[i].max_value:
-            print(
-                f"Variable {variables[i].name} is a constant ({variables[i].min_value}); skipping."
-            )
+            # print(
+            #     f"Variable {variables[i].name} is a constant ({variables[i].min_value}); skipping."
+            # )
             min_value, max_value = (variables[i].min_value, variables[i].max_value)
         else:
             # Determine the max_bfs_expansions based on the time remaining.
@@ -204,12 +205,12 @@ with open("generated_data/bounds.txt", "w") as bounds_file:
 
             min_value, max_value = 0, None
             while min_value != max_value:
-                print(
-                    "\n\n"
-                    f"Solving bounds for {variables[i].name} with {max_bfs_expansions=}"
-                    f" (time remaining for this var: {max(0, target_end_time_this_var - time.perf_counter()):.3f}s)"
-                    "\n\n"
-                )
+                # print(
+                #     "\n\n"
+                #     f"Solving bounds for {variables[i].name} with {max_bfs_expansions=}"
+                #     f" (time remaining for this var: {max(0, target_end_time_this_var - time.perf_counter()):.3f}s)"
+                #     "\n\n"
+                # )
 
                 solve_start = time.perf_counter()
 
@@ -234,12 +235,12 @@ with open("generated_data/bounds.txt", "w") as bounds_file:
                 )
 
                 if min_value == max_value:
-                    print(f"\n\nSucceeded for {variables[i].name} with {max_bfs_expansions=}\n\n")
+                    prog.write(f"\n\nSucceeded for {variables[i].name} with {max_bfs_expansions=}\n\n")
                     break
                 elif time_left_after_next_solve < 0:
-                    print(
-                        f"\n\nDoubling max_bfs_expansions would end up {-time_left_after_next_solve:.3f}s over budget; stopping\n\n"
-                    )
+                    # prog.write(
+                    #     f"\n\nDoubling max_bfs_expansions would end up {-time_left_after_next_solve:.3f}s over budget; stopping\n\n"
+                    # )
                     break
                 else:
                     max_bfs_expansions *= 2
