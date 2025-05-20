@@ -9,6 +9,7 @@ dependencies = [
     "matplotlib>=3.10.3",
     "networkx>=3.4.2",
     "ortools>=9.12.4544",
+    "pydantic>=2.11.4",
     "safetensors>=0.5.3",
     "tqdm>=4.67.1",
 ]
