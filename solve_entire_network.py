@@ -1,11 +1,17 @@
 import pickle
 import time
+from argparse import ArgumentParser
 from collections import deque
 
 from ortools.sat.python import cp_model
 from tqdm import tqdm
 
 from disassembly_types import Variable
+
+parser = ArgumentParser()
+parser.add_argument("--full", action="store_true", help="Solve the full network in one shot")
+args = parser.parse_args()
+
 
 # Load the variables.
 with open("generated_data/reduced_variables.pickle", "rb") as f:
@@ -43,7 +49,10 @@ minimize_hint_values = [None for _ in variables]
 maximize_hint_values = minimize_hint_values.copy()
 
 
-def solve_for_min_max(target_var_index: int, max_bfs_expansions: int) -> tuple[int, int]:
+def build_model(
+    target_var_index: int, max_bfs_expansions: int
+) -> tuple[cp_model.CpModel, dict[int, cp_model.IntVar]]:
+    """Builds a CP-SAT model for the given variable index."""
     assert max_bfs_expansions > 0, "max_bfs_expansions must be greater than 0"
 
     # print("Building model...")
@@ -107,6 +116,12 @@ def solve_for_min_max(target_var_index: int, max_bfs_expansions: int) -> tuple[i
         )
         model.add(linear_expr_value == 0)
 
+    return model, var_index_to_cp_var
+
+
+def solve_for_min_max(target_var_index: int, max_bfs_expansions: int) -> tuple[int, int]:
+    model, var_index_to_cp_var = build_model(target_var_index, max_bfs_expansions)
+
     # print("Solving...")
     solver = cp_model.CpSolver()
     solver.parameters.log_search_progress = False
@@ -132,13 +147,12 @@ def solve_for_min_max(target_var_index: int, max_bfs_expansions: int) -> tuple[i
         status = solver.solve(model)
         # print(f"{solver.wall_time = }")
 
-        # print(f"{(status == cp_model.OPTIMAL) = }")
-        # print(f"{(status == cp_model.FEASIBLE) = }")
-        # print(f"{(status == cp_model.INFEASIBLE) = }")
-        # print(f"{(status == cp_model.UNKNOWN) = }")
-
         if status != cp_model.OPTIMAL:
-            raise Exception("infeasible")
+            print(f"{(status == cp_model.OPTIMAL) = }")
+            print(f"{(status == cp_model.FEASIBLE) = }")
+            print(f"{(status == cp_model.INFEASIBLE) = }")
+            print(f"{(status == cp_model.UNKNOWN) = }")
+            raise Exception("Not optimal")
 
         # Update hints for the next solve.
         for i, cp_var in var_index_to_cp_var.items():
@@ -168,6 +182,26 @@ def save_variable_values(
         f.write("\n}\n")
 
 
+if args.full:
+    # Solve the entire network in one shot.
+    model, var_index_to_cp_var = build_model(0, len(variables))
+    solver = cp_model.CpSolver()
+    solver.parameters.log_search_progress = True
+    solver.parameters.max_presolve_iterations = 10
+    solver.parameters.max_memory_in_mb = 4_096
+
+    status = solver.solve(model)
+    save_variable_values(solver, var_index_to_cp_var)
+    if status != cp_model.OPTIMAL:
+        print(f"{(status == cp_model.OPTIMAL) = }")
+        print(f"{(status == cp_model.FEASIBLE) = }")
+        print(f"{(status == cp_model.INFEASIBLE) = }")
+        print(f"{(status == cp_model.UNKNOWN) = }")
+        raise Exception("Not optimal")
+
+    exit(0)
+
+
 TOTAL_HOURS_TARGET = 12
 TOTAL_SECS_TARGET = 60 * 60 * TOTAL_HOURS_TARGET
 target_end_time = time.perf_counter() + TOTAL_SECS_TARGET
@@ -176,9 +210,7 @@ avg_time_by_mbe = {}
 EMA_LAMBDA = 0.9
 
 with open("generated_data/bounds.txt", "w") as bounds_file:
-    prog = tqdm(
-        reversed(range(len(variables))), desc="Solving", unit="var", total=len(variables)
-    )
+    prog = tqdm(reversed(range(len(variables))), desc="Solving", unit="var", total=len(variables))
     for i in prog:
         now = time.perf_counter()
         target_duration_this_var = (target_end_time - now) / (i + 1)
@@ -235,7 +267,9 @@ with open("generated_data/bounds.txt", "w") as bounds_file:
                 )
 
                 if min_value == max_value:
-                    prog.write(f"\n\nSucceeded for {variables[i].name} with {max_bfs_expansions=}\n\n")
+                    prog.write(
+                        f"\n\nSucceeded for {variables[i].name} with {max_bfs_expansions=}\n\n"
+                    )
                     break
                 elif time_left_after_next_solve < 0:
                     # prog.write(
