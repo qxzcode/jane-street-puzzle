@@ -105,23 +105,22 @@ for var, var_neighbors, is_input_var, is_determined_var, is_eliminated_var in zi
                 ~is_determined[input_index] for input_index, _ in var.value.terms
             ).only_enforce_if(~is_determined_var)
 
-# # Maximize the number of determined (non-const) variables that are not input.
-# model.maximize(
-#     sum(
-#         is_determined_var - is_input_var
-#         for var, is_input_var, is_determined_var in zip(variables, is_input, is_determined)
-#         if not is_constant(var)
-#     )
-# )
+# Maximize the number of determined (non-const) variables that are not input.
+num_determined = sum(
+    is_determined_var - is_input_var
+    for var, is_input_var, is_determined_var in zip(variables, is_input, is_determined)
+    if not is_constant(var)
+)
 
 # Maximize the number of eliminated (non-const) variables.
-model.maximize(
-    sum(
-        is_eliminated_var
-        for var, is_eliminated_var in zip(variables, is_eliminated)
-        if not is_constant(var)
-    )
+num_eliminated = sum(
+    is_eliminated_var
+    for var, is_eliminated_var in zip(variables, is_eliminated)
+    if not is_constant(var)
 )
+
+# model.maximize(num_eliminated*100 + num_determined)
+model.maximize(num_eliminated)
 
 
 class Reduction(BaseModel):
@@ -225,6 +224,7 @@ if __name__ == "__main__":
         for var_name in reduction.eliminated:
             var_index, var = variables_by_name[var_name]
             model.add(is_eliminated[var_index] == 0)
+            model.add(is_input[var_index] == 0)
             eliminated_vars.add(var_name)
 
     while True:
@@ -241,6 +241,8 @@ if __name__ == "__main__":
         for var_name in reduction.eliminated:
             var_index, var = variables_by_name[var_name]
             model.add(is_eliminated[var_index] == 0)
+            model.add(is_input[var_index] == 0)
+            eliminated_vars.add(var_name)
 
         with open("generated_data/reductions.json", "wb") as f:
             f.write(TypeAdapter(list[Reduction]).dump_json(reductions, indent=2))
