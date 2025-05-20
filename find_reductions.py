@@ -215,8 +215,18 @@ def find_reduction(max_time_in_seconds: float) -> Reduction:
 
 
 if __name__ == "__main__":
-    reductions = []
     eliminated_vars = set()
+
+    with open("generated_data/reductions.json", "rb") as f:
+        reductions = TypeAdapter(list[Reduction]).validate_json(f.read())
+
+    # Add constraints: not allowed to eliminate variables that were eliminated in a previous iteration.
+    for reduction in reductions:
+        for var_name in reduction.eliminated:
+            var_index, var = variables_by_name[var_name]
+            model.add(is_eliminated[var_index] == 0)
+            eliminated_vars.add(var_name)
+
     while True:
         reduction = find_reduction(max_time_in_seconds=60)
         reductions.append(reduction)
